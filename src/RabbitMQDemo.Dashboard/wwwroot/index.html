@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RabbitMQ Demo 消息追踪仪表盘</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<style>
+  body { background: #f0f2f5; font-size: 14px; }
+  .navbar { background: linear-gradient(135deg, #1a237e, #283593); }
+  .stat-card { border-radius: 12px; border: none; transition: transform .2s; }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-card .num { font-size: 2rem; font-weight: 700; }
+  .stat-card .label { font-size: .85rem; color: #666; }
+  .stat-card.bg-published { background: linear-gradient(135deg, #e3f2fd, #bbdefb); }
+  .stat-card.bg-consumed { background: linear-gradient(135deg, #e8f5e9, #c8e6c9); }
+  .stat-card.bg-deadletter { background: linear-gradient(135deg, #fff3e0, #ffe0b2); }
+  .stat-card.bg-unroutable { background: linear-gradient(135deg, #fce4ec, #f8bbd0); }
+  .badge-state { font-size: .75rem; padding: .3em .6em; border-radius: 20px; }
+  .badge-Published { background: #1976d2; color: #fff; }
+  .badge-Consumed { background: #388e3c; color: #fff; }
+  .badge-DeadLettered { background: #f57c00; color: #fff; }
+  .badge-Unroutable { background: #d32f2f; color: #fff; }
+  .table-wrap { border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  .table thead th { background: #f8f9fa; border-bottom: 2px solid #dee2e6; font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .5px; color: #555; }
+  .table td { vertical-align: middle; }
+  .msg-id { font-family: 'SF Mono', 'Consolas', monospace; font-size: .75rem; color: #888; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+  .summary-cell { max-width: 200px; }
+  .footer { font-size: .8rem; color: #999; text-align: center; padding: 20px 0; }
+  .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4caf50; animation: pulse 1.5s infinite; margin-right: 6px; }
+  @keyframes pulse { 0% { opacity: 1; } 50% { opacity: .3; } 100% { opacity: 1; } }
+  .filter-bar { background: #fff; border-radius: 12px; padding: 12px 16px; box-shadow: 0 2px 8px rgba(0,0,0,.04); }
+  .clear-btn { font-size: .8rem; }
+</style>
+</head>
+<body>
+
+<!-- 导航栏 -->
+<nav class="navbar navbar-dark px-4 py-3">
+  <div class="container-fluid">
+    <span class="navbar-brand mb-0 h1">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      RabbitMQ 消息追踪仪表盘
+    </span>
+    <span class="text-light-emphasis">
+      <span class="live-dot"></span>实时监控
+    </span>
+  </div>
+</nav>
+
+<div class="container-fluid px-4 py-3">
+
+  <!-- 统计卡片 -->
+  <div class="row g-3 mb-4" id="statsRow">
+    <div class="col-md-3">
+      <div class="stat-card bg-published p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="num" id="statPublished">0</div>
+            <div class="label">📤 已发布 (未消费)</div>
+          </div>
+          <span style="font-size:2rem;opacity:.3;">📤</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="stat-card bg-consumed p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="num" id="statConsumed">0</div>
+            <div class="label">✅ 已消费</div>
+          </div>
+          <span style="font-size:2rem;opacity:.3;">✅</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="stat-card bg-deadletter p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="num" id="statDeadLettered">0</div>
+            <div class="label">⚠️ 死信队列</div>
+          </div>
+          <span style="font-size:2rem;opacity:.3;">⚠️</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="stat-card bg-unroutable p-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="num" id="statUnroutable">0</div>
+            <div class="label">🚫 路由失败</div>
+          </div>
+          <span style="font-size:2rem;opacity:.3;">🚫</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 过滤器 -->
+  <div class="filter-bar d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex gap-2 align-items-center">
+      <strong class="me-2" style="font-size:.85rem;">🔍 筛选:</strong>
+      <select class="form-select form-select-sm" id="stateFilter" style="width:auto;">
+        <option value="">全部状态</option>
+        <option value="Published">已发布 (未消费)</option>
+        <option value="Consumed">已消费</option>
+        <option value="DeadLettered">死信</option>
+        <option value="Unroutable">路由失败</option>
+      </select>
+      <span class="text-muted ms-2" style="font-size:.8rem;" id="totalCount">共 0 条</span>
+    </div>
+    <div>
+      <span class="text-muted me-2" style="font-size:.8rem;" id="refreshTime">更新中...</span>
+      <button class="btn btn-outline-danger btn-sm clear-btn" onclick="clearMessages()">🗑️ 清空</button>
+    </div>
+  </div>
+
+  <!-- 消息表格 -->
+  <div class="table-wrap">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th style="width:36px;">#</th>
+          <th style="width:105px;">发布时间</th>
+          <th style="width:105px;">消费时间</th>
+          <th style="width:82px;">耗时</th>
+          <th style="width:100px;">MessageId</th>
+          <th style="width:72px;">交换机</th>
+          <th style="width:56px;">路由键</th>
+          <th>内容摘要</th>
+          <th style="width:68px;">金额</th>
+          <th style="width:62px;">类型</th>
+          <th style="width:72px;">状态</th>
+          <th>消费者</th>
+          <th>错误信息</th>
+        </tr>
+      </thead>
+      <tbody id="messageTableBody">
+        <tr><td colspan="13" class="text-center text-muted py-4">等待数据加载...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<div class="footer">
+  RabbitMQ Demo · .NET 10 · 数据每 2 秒自动刷新 ·
+  <a href="http://localhost:15672" target="_blank" class="text-decoration-none">RabbitMQ 管理控制台 →</a>
+</div>
+
+<script>
+const API_BASE = '';
+let messages = [];
+
+// ====== 格式化 ======
+function fmtTime(iso) {
+  if (!iso) return '<span class="text-muted">-</span>';
+  const d = new Date(iso);
+  const h = String(d.getHours()).padStart(2,'0');
+  const m = String(d.getMinutes()).padStart(2,'0');
+  const s = String(d.getSeconds()).padStart(2,'0');
+  const ms = String(d.getMilliseconds()).padStart(3,'0');
+  return `${h}:${m}:${s}.<span style="font-size:.7rem;">${ms}</span>`;
+}
+
+function calcDuration(pubIso, conIso) {
+  if (!pubIso || !conIso) return '<span class="text-muted">-</span>';
+  const diff = new Date(conIso) - new Date(pubIso);
+  if (diff < 0) return '<span class="text-muted">-</span>';
+  const totalMs = diff;
+  const totalSec = Math.floor(totalMs / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  const ms = totalMs % 1000;
+  let cls = 'text-success';
+  if (totalSec >= 10) cls = 'text-warning';
+  if (totalSec >= 60) cls = 'text-danger';
+  return `<span class="${cls}" style="font-weight:600;font-size:.85rem;">${min}分${sec}秒${ms}毫秒</span>`;
+}
+
+function fmtMsgId(id) {
+  if (!id) return '-';
+  return id.substring(0, 12) + '…';
+}
+
+function fmtExchange(ex) {
+  const map = {
+    'order.fanout': '广播交换机 🔉 (Fanout)',
+    'order.direct': '直连交换机 🎯 (Direct)',
+    'order.topic': '主题交换机 📋 (Topic)',
+    'order.unrouted.ae': '备用交换机 🚫 (Alternate)',
+    'dlx.order': '死信交换机 💀 (DLX)'
+  };
+  return map[ex] || ex;
+}
+
+function fmtType(type) {
+  const map = { 'Created': '创建 (Created)', 'Paid': '支付 (Paid)', 'Shipped': '发货 (Shipped)' };
+  return map[type] || type || '-';
+}
+
+function badge(state) {
+  const map = {
+    'Published': '已发布 (Published)',
+    'Consumed': '已消费 (Consumed)',
+    'DeadLettered': '死信 (DeadLetter)',
+    'Unroutable': '路由失败 (Unroutable)'
+  };
+  const label = map[state] || state;
+  return `<span class="badge-state badge-${state}">${label}</span>`;
+}
+
+// ====== 加载数据 ======
+async function loadData() {
+  try {
+    const filter = document.getElementById('stateFilter').value;
+    const [msgRes, statsRes] = await Promise.all([
+      fetch(API_BASE + '/api/messages' + (filter ? `?state=${filter}` : '')),
+      fetch(API_BASE + '/api/stats')
+    ]);
+    messages = await msgRes.json();
+    const stats = await statsRes.json();
+
+    // 更新统计
+    document.getElementById('statPublished').textContent = stats.published;
+    document.getElementById('statConsumed').textContent = stats.consumed;
+    document.getElementById('statDeadLettered').textContent = stats.deadLettered;
+    document.getElementById('statUnroutable').textContent = stats.unroutable;
+    document.getElementById('totalCount').textContent = `共 ${messages.length} 条`;
+
+    // 更新时间
+    document.getElementById('refreshTime').textContent = new Date().toLocaleTimeString('zh-CN');
+
+    // 渲染表格
+    const tbody = document.getElementById('messageTableBody');
+    if (messages.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">暂无消息记录</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = messages.map((m, i) => `
+      <tr>
+        <td class="text-muted">${i + 1}</td>
+        <td style="font-size:.78rem;white-space:nowrap;" title="${new Date(m.publishedAt).toLocaleString('zh-CN')}">${fmtTime(m.publishedAt)}</td>
+        <td style="font-size:.78rem;white-space:nowrap;" title="${m.consumedAt ? new Date(m.consumedAt).toLocaleString('zh-CN') : ''}">${fmtTime(m.consumedAt)}</td>
+        <td style="text-align:center;white-space:nowrap;">${calcDuration(m.publishedAt, m.consumedAt)}</td>
+        <td><span class="msg-id" title="${m.messageId}">${fmtMsgId(m.messageId)}</span></td>
+        <td style="font-size:.8rem;">${fmtExchange(m.exchange)}</td>
+        <td><code style="font-size:.75rem;">${m.routingKey || '-'}</code></td>
+        <td class="summary-cell" title="${m.bodySummary}">
+          <span style="font-size:.85rem;">${escapeHtml(m.bodySummary || '-')}</span>
+        </td>
+        <td style="font-weight:600;">${m.amount ? '$' + m.amount.toFixed(2) : '-'}</td>
+        <td><span class="badge bg-secondary" style="font-size:.7rem;">${fmtType(m.bodyType)}</span></td>
+        <td>${badge(m.state)}</td>
+        <td style="font-size:.8rem;">${m.consumerWorker ? m.consumerWorker.replace('ConsumerWorker','') : '-'}</td>
+        <td style="font-size:.8rem;color:#d32f2f;max-width:100px;overflow:hidden;text-overflow:ellipsis;" title="${m.errorInfo || ''}">
+          ${m.errorInfo ? '⚠ ' + escapeHtml(m.errorInfo).substring(0,20) + (m.errorInfo.length>20?'…':'') : ''}
+        </td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    console.warn('加载数据失败:', e);
+    document.getElementById('messageTableBody').innerHTML =
+      '<tr><td colspan="13" class="text-center text-warning py-4">⏳ 等待 Dashboard 连接...</td></tr>';
+  }
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+async function clearMessages() {
+  if (!confirm('确定清空所有消息追踪记录？')) return;
+  await fetch(API_BASE + '/api/messages', { method: 'DELETE' });
+  await loadData();
+}
+
+// 筛选变化时重载
+document.getElementById('stateFilter').addEventListener('change', loadData);
+
+// 每 2 秒自动刷新
+loadData();
+setInterval(loadData, 2000);
+</script>
+</body>
+</html>

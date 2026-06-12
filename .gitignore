@@ -1,0 +1,23 @@
+# OS
+Thumbs.db
+Desktop.ini
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.sln.docstates
+.vs/
+*.DotSettings
+
+# Crash dumps
+*.dump
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Installers (too large for git)
+assets/

@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RabbitMQDemo.Dashboard/RabbitMQDemo.Dashboard.csproj" />
+    <Project Path="src/RabbitMQDemo.Infrastructure/RabbitMQDemo.Infrastructure.csproj" />
+    <Project Path="src/RabbitMQDemo.Publisher/RabbitMQDemo.Publisher.csproj" />
+    <Project Path="src/RabbitMQDemo.Shared/RabbitMQDemo.Shared.csproj" />
+    <Project Path="src/RabbitMQDemo.Subscriber/RabbitMQDemo.Subscriber.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RabbitMQDemo.Tests/RabbitMQDemo.Tests.csproj" />
+  </Folder>
+</Solution>
